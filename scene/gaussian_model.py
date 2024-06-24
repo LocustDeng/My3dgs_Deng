@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[5]:
 
 
 import torch
@@ -111,10 +111,41 @@ class GSModel:
         self.inverse_opacity_activation = inverse_sigmoid
         self.rotation_activation = torch.nn.functional.normalize
     
-    ####
+    #### 获得高斯在世界坐标系中的坐标
+    @property
     def get_xyz(self):
         return self._xyz
     
+    #### 获得高斯的透明度
+    @property
+    def get_opacity(self):
+        return self.opacity_activation(self._opacity)
+    
+    #### 获得高斯的缩放因子
+    @property
+    def get_scaling(self):
+        return self.scaling_activation(self._scaling)
+    
+    #### 获得高斯的旋转矩阵四元数
+    @property
+    def get_rotation(self):
+        return self.rotation_activation(self._rotation)
+    
+    #### 获得高斯的球谐系数
+    @property
+    def get_features(self):
+        features_dc = self._features_dc
+        features_rest = self._features_rest
+        return torch.cat((features_dc, features_rest), dim=1)
+    
+    #### 获得高斯个数
+    @property
+    def get_P(self):
+        return self._xyz.shape[0]
+    
+    #### 计算高斯方差
+    def get_covariance(self, scaling_modifier = 1):
+        return self.covariance_activation(self.get_scaling, scaling_modifier, self._rotation)
     
     #### 从点云中初始化高斯
     def create_from_pcd(self, pcd : BasicPointCloud, spatial_lr_scale : float):
@@ -146,11 +177,12 @@ class GSModel:
         self._rotation = nn.Parameter(rots.requires_grad_(True)) # 旋转参数
         self._opacity = nn.Parameter(opacities.requires_grad_(True)) # 不透明度
         # 初始化为零张量的最大半径（二维），位于 GPU
-        # self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda") # 有点问题，用到再改
-    
-    #### 计算高斯方差
-    def get_covariance(self, scaling_modifier = 1):
-        return self.covariance_activation(self.get_scaling, scaling_modifier, self._rotation)
+        # self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+
+    #### 更新球谐函数阶数
+    def oneupSHdegree(self):
+        if self.active_sh_degree < self.max_sh_degree:
+            self.active_sh_degree += 1
     
 
 

@@ -6,7 +6,7 @@
 # ![image.png](attachment:image.png)
 # ![image-2.png](attachment:image-2.png)
 
-# In[22]:
+# In[7]:
 
 
 import os
@@ -19,7 +19,27 @@ from typing import NamedTuple
 from plyfile import PlyData, PlyElement
 from scene.colmap_loader import read_extrinsics_binary, read_intrinsics_binary, qvec2rotmat
 
-# 图片信息类，包含图片基本信息，图片对应的相机外参矩阵和投影矩阵
+# 根据R和T计算世界坐标系到相机坐标系的变换矩阵
+def getWorld2View2(R, t, translate=np.array([.0, .0, .0]), scale=1.0): # translate（可选）：附加的平移向量，默认为零向量。scale（可选）：缩放因子，默认为1.0。
+    # 初始化4*4的变换矩阵RT
+    Rt = np.zeros((4, 4))
+    Rt[:3, :3] = R.transpose()
+    Rt[:3, 3] = t
+    Rt[3, 3] = 1.0 # 将4行4列的元素设为1，将其变换为一个齐次矩阵，方便求逆
+    # 求Rt的逆矩阵
+    C2W = np.linalg.inv(Rt)
+    # 提取相机中心（视图坐标系原点在世界坐标系中的位置），写公式可推，（cx，cy，cz）=（0,0,0）
+    cam_center = C2W[:3, 3]
+    # 对相机中心应用平移和缩放
+    cam_center = (cam_center + translate) * scale
+    # 获得平移和缩放后的相机中心
+    C2W[:3, 3] = cam_center
+    # 平移和缩放后的矩阵求逆，获得平移缩放后的变换矩阵
+    Rt = np.linalg.inv(C2W)
+    return np.float32(Rt)
+
+
+# 图片信息类，包含图片基本信息，图片对应的相机外参矩阵和投影矩阵，camera.py
 class ImageInfo:
     #### 初始化函数
     def __init__(self, cid, image_name, image_path, image, R, T, focalX, focalY, width, height):
@@ -42,6 +62,11 @@ class ImageInfo:
         self.ProjMatrix = self.processProjMatrix(self.znear, self.zfar, self.fovX, self.fovY) # 内参
         # self.ViewProjMatrix = self.ViewMatrix @ self.ProjMatrix # All
         self.ViewProjMatrix = torch.matmul(torch.tensor(self.ViewMatrix, dtype=torch.float32), self.ProjMatrix)
+        # 计算相机光心
+        self.trans=np.array([0.0, 0.0, 0.0])
+        self.scale=1.0
+        self.world_view_transform = torch.tensor(getWorld2View2(R, T, self.trans, self.scale)).transpose(0, 1).cuda()
+        self.camera_center = self.world_view_transform.inverse()[3, :3]
         
     #### 计算相机视场角
     def processFov(self, focal, distance):
@@ -77,9 +102,9 @@ class ImageInfo:
     
 # 点云类
 class BasicPointCloud(NamedTuple):
-    points : np.array
-    colors : np.array
-    normals : np.array
+    points : np.array # 存储所有点云的位置信息（x,y,z）,n*3的矩阵，每行一个点的位置信息
+    colors : np.array # 同上，每行一个点的颜色信息
+    normals : np.array # 同上，每行一个点的法向量
 
 # 只考虑从colmap的初始化点云中加载数据的情形
 class GSDataLoader:
@@ -151,6 +176,7 @@ class GSDataLoader:
 #### 测试
 # l_data = GSDataLoader(r"D:\3DGS\gaussian-splatting(note)\data", "images")
 # print(l_data.cameras[1].ViewProjMatrix)
+# print(l_data.cameras[1].camera_center)
 # print(l_data.points_cloud)
 
 
