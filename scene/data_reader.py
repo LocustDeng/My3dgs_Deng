@@ -61,7 +61,7 @@ class ImageInfo:
         self.ViewMatrix = self.processViewMatrix(self.R, self.T) # 外参
         self.ProjMatrix = self.processProjMatrix(self.znear, self.zfar, self.fovX, self.fovY) # 内参
         # self.ViewProjMatrix = self.ViewMatrix @ self.ProjMatrix # All
-        self.ViewProjMatrix = torch.matmul(torch.tensor(self.ViewMatrix, dtype=torch.float32), self.ProjMatrix)
+        self.ViewProjMatrix = torch.matmul(self.ProjMatrix, torch.tensor(self.ViewMatrix, dtype=torch.float32))
         # 计算相机光心
         self.trans=np.array([0.0, 0.0, 0.0])
         self.scale=1.0
