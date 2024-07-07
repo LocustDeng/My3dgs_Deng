@@ -6,7 +6,6 @@
 
 import time
 from typing import NamedTuple
-
 import torch.nn as nn
 import torch
 from pyrender.forward import *
@@ -157,6 +156,8 @@ class GaussianRasterizer():
             conic_opacity,
             rect_min,
             rect_max,
+            rect_pix_min,
+            rect_pix_max,
             background
         )
 
