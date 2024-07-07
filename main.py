@@ -18,8 +18,8 @@ from pyrender.rasterization import *
 def render(viewpoint_cam, pc : GSModel, scene_info, config):
     ### 计算光栅化过程中可能使用的参数
     ## 计算相机视野角度的切线值
-    tanfovx = math.tan(viewpoint_cam.fovX)
-    tanfovy = math.tan(viewpoint_cam.fovY)
+    tanfovx = math.tan(viewpoint_cam.fovX * 0.5)
+    tanfovy = math.tan(viewpoint_cam.fovY * 0.5)
     
     ### 初始化高斯光栅化器
     rasterizer = GaussianRasterizer()
@@ -29,7 +29,7 @@ def render(viewpoint_cam, pc : GSModel, scene_info, config):
         P = pc.get_P,
         D = 3, # int，球谐函数的度数
         M = 16, # int，基函数的个数
-        background = torch.tensor([0, 0, 0]), 
+        background = torch.tensor([0, 0, 0], device="cuda", dtype=torch.float), # 默认黑色
         width = viewpoint_cam.width,
         height =  viewpoint_cam.height,
         means3D = pc.get_xyz,
@@ -57,7 +57,8 @@ def train(config):
     # print(scene_info.points_cloud)
     ##【待实现】计算场景包围盒半径,后期进行高斯球致密化时需要使用
     ## 从点云数据中创建高斯
-    gaussians.create_from_pcd(scene_info.points_cloud, 1.0) # 空间缩放因子是随便设的
+    # gaussians.create_from_pcd(scene_info.points_cloud, 1.0) # 空间缩放因子是随便设的
+    gaussians.load_ply("D:\\Dataset\\data\\point_cloud.ply")
     # print(gaussians._rotation.shape[0])
     # print(gaussians._features_dc)
     ##【待实现】配置高斯模型训练参数
@@ -78,8 +79,10 @@ def train(config):
         ## 复制相机信息列表，并随机选取一个相机视角作为训练渲染视角
         if not viewpoint_stack:
             viewpoint_stack = scene_info.cameras
-        viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
-        # print(viewpoint_cam.camera_center)
+        # viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
+        viewpoint_cam = viewpoint_stack.pop(0)
+        # print(viewpoint_cam.fovX)
+        # print(build_r(gaussians.get_rotation))
         ## 渲染
         render(viewpoint_cam, gaussians, scene_info, config)
     
@@ -111,7 +114,8 @@ if __name__ == "__main__":
     
     ### 测试
     ## config = parser.parse_args(["--detect_anomaly", "--test_iterations", "40000"])
-    config = parser.parse_args(["--source_path", "D:\\3DGS\\gaussian-splatting(note)\\data"]) # 设置source_path,后期修改为命令行获取
+    # config = parser.parse_args(["--source_path", "D:\\3DGS\\gaussian-splatting(note)\\data"]) # 设置source_path,后期修改为命令行获取
+    config = parser.parse_args(["--source_path", "D:\\Dataset\\data"])
     # print(config.source_path) # 测试参数配置是否成功
     # print(config.sh_degree)
     ## 测试数据读取模块

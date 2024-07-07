@@ -14,45 +14,44 @@ def computeCov3D(P, scale, mod, q):
     
     ### 创建R矩阵，四元数
     R = torch.zeros((P, 3, 3), device="cuda", dtype=torch.float)
-    R[:, 0, 0] = 1.0 - 2.0 * (q[:, 1] * q[:, 1] + q[:, 2] * q[:, 2])
-    R[:, 0, 1] = 2.0 * (q[:, 0] * q[:, 1] - q[:, 3] * q[:, 2])
-    R[:, 0, 2] = 2.0 * (q[:, 0] * q[:, 2] + q[:, 3] * q[:, 1])
-    R[:, 1, 0] = 2.0 * (q[:, 0] * q[:, 1] + q[:, 3] * q[:, 2])
-    R[:, 1, 1] = 1.0 - 2.0 * (q[:, 0] * q[:, 0] + q[:, 2] * q[:, 2])
-    R[:, 1, 2] = 2.0 * (q[:, 1] * q[:, 2] - q[:, 3] * q[:, 0])
-    R[:, 2, 0] = 2.0 * (q[:, 0] * q[:, 2] - q[:, 3] * q[:, 1])
-    R[:, 2, 1] = 2.0 * (q[:, 1] * q[:, 2] + q[:, 3] * q[:, 0])
-    R[:, 2, 2] = 1.0 - 2.0 * (q[:, 0] * q[:, 0] + q[:, 1] * q[:, 1])
+    R[:, 0, 0] = 1.0 - 2.0 * (q[:, 2] * q[:, 2] + q[:, 3] * q[:, 3])
+    R[:, 0, 1] = 2.0 * (q[:, 1] * q[:, 2] - q[:, 0] * q[:, 3])
+    R[:, 0, 2] = 2.0 * (q[:, 1] * q[:, 3] + q[:, 0] * q[:, 2])
+    R[:, 1, 0] = 2.0 * (q[:, 1] * q[:, 2] + q[:, 0] * q[:, 3])
+    R[:, 1, 1] = 1.0 - 2.0 * (q[:, 1] * q[:, 1] + q[:, 3] * q[:, 3])
+    R[:, 1, 2] = 2.0 * (q[:, 2] * q[:, 3] - q[:, 0] * q[:, 1])
+    R[:, 2, 0] = 2.0 * (q[:, 1] * q[:, 3] - q[:, 0] * q[:, 2])
+    R[:, 2, 1] = 2.0 * (q[:, 2] * q[:, 3] + q[:, 0] * q[:, 1])
+    R[:, 2, 2] = 1.0 - 2.0 * (q[:, 1] * q[:, 1] + q[:, 2] * q[:, 2])
+    # print(q)
+    # print(R)
 
     ### 计算3D协方差
-    M = S @ R
-    cov3Ds = M.permute(0, 2, 1) @ M
+    M = R @ S
+    cov3Ds = M @ M.transpose(1, 2)
     return cov3Ds
 
 
 #### 计算高斯的2D协方差
 def computeCov2D(P, points_xyz_camera, focal_x, focal_y, tanfovx, tanfovy, cov3Ds, viewmatrix):
+    # print(points_xyz_camera)
     ### 限制相机空间下的点坐标在视角范围内
-    limx = 1.3 * tanfovx
-    limy = 1.3 * tanfovy
-    temp = torch.zeros((P, 2), device="cuda", dtype=torch.float)
-    temp[:, 0] = points_xyz_camera[:, 0] / points_xyz_camera[:, 2]
-    temp[:, 1] = points_xyz_camera[:, 1] / points_xyz_camera[:, 2]
-    points_xyz_camera[:, 0] = torch.clamp(temp[:, 0], min=-limx, max=limx) * points_xyz_camera[:, 2]
-    points_xyz_camera[:, 1] = torch.clamp(temp[:, 1], min=-limy, max=limy) * points_xyz_camera[:, 2]
+    tx = (points_xyz_camera[..., 0] / points_xyz_camera[..., 2]).clip(min=-tanfovx*1.3, max=tanfovx*1.3) * points_xyz_camera[..., 2]
+    ty = (points_xyz_camera[..., 1] / points_xyz_camera[..., 2]).clip(min=-tanfovy*1.3, max=tanfovy*1.3) * points_xyz_camera[..., 2]
+    tz = points_xyz_camera[..., 2]
     
     ### 计算雅各比矩阵
-    J = torch.zeros((P, 3, 3), device="cuda", dtype=torch.float)
-    J[:, 0, 0] = focal_x / points_xyz_camera[:, 2]
-    J[:, 0, 2] = -(focal_x * points_xyz_camera[:, 0]) / (points_xyz_camera[:, 2] * points_xyz_camera[:, 2])
-    J[:, 1, 1] = focal_y / points_xyz_camera[:, 2]
-    J[:, 1, 2] = -(focal_y * points_xyz_camera[:, 1]) / (points_xyz_camera[:, 2] * points_xyz_camera[:, 2])
+    J = torch.zeros((P, 3, 3), device="cuda", dtype=torch.float).to(points_xyz_camera)
+    J[..., 0, 0] = 1 / tz * focal_x
+    J[..., 0, 2] = -tx / (tz * tz) * focal_x
+    J[..., 1, 1] = 1 / tz * focal_y
+    J[..., 1, 2] = -ty / (tz * tz) * focal_y
 
     ### 提取viewmatrix矩阵的旋转部分，前3行前3列
     W = viewmatrix[:3, :3]
 
     ### 构造变换矩阵
-    T = W @ J
+    T = J @ W
 
     ### 计算2D协方差
     cov = torch.bmm(torch.bmm(T, cov3Ds), T.permute(0, 2, 1))
