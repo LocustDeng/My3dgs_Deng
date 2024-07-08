@@ -9,10 +9,10 @@ import torch
 import sys
 import json
 from random import randint
-from argparse import ArgumentParser, Namespace
 from scene.data_reader import *
 from scene.gaussian_model import *
 from pyrender.rasterization import *
+from argparse import ArgumentParser, Namespace
 
 #### render函数，完成渲染过程的参数配置，初始化渲染器
 def render(viewpoint_cam, pc : GSModel, scene_info, config):

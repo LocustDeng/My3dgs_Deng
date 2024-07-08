@@ -106,13 +106,15 @@ def preprocess(
     cov2Ds_re = torch.inverse(cov2Ds)
     
     ### 计算3D高斯的2D投影在图像中的覆盖范围
-    ## 计算行列式的值
-    # det = cov2Ds[:, 0, 0] * cov2Ds[:, 1, 1] - cov2Ds[:, 0, 1] * cov2Ds[:, 1, 0]
     ## 计算2D投影的包围盒
+    # 写法1
+    # 计算行列式的值
+    # det = cov2Ds[:, 0, 0] * cov2Ds[:, 1, 1] - cov2Ds[:, 0, 1] * cov2Ds[:, 1, 0]
     # mid = 0.5 * (cov2Ds[:, 0, 0] + cov2Ds[:, 1, 1])
     # lambda1 = mid + torch.sqrt(torch.where((mid * mid - det) > 0.1, (mid * mid - det), torch.tensor(0.1, device="cuda", dtype=torch.float)))
     # lambda2 = mid - torch.sqrt(torch.where((mid * mid - det) > 0.1, (mid * mid - det), torch.tensor(0.1, device="cuda", dtype=torch.float)))
     # temp_radius = torch.ceil(3.0 * torch.sqrt(torch.where((lambda1 > lambda2), lambda1, lambda2)))
+    # 写法2
     a = cov2Ds[:, 0, 0]
     b = cov2Ds[:, 0, 1]
     c = cov2Ds[:, 1, 0]
@@ -152,6 +154,7 @@ def preprocess(
     radii = temp_radius
     
     ### 存储conic_opacity
+    opacities.clip(min=0, max=1)
     conic_opacity[..., 0] = cov2Ds_re[..., 0, 0]
     conic_opacity[..., 1] = cov2Ds_re[..., 0, 1]
     conic_opacity[..., 2] = cov2Ds_re[..., 1, 1]
@@ -195,19 +198,20 @@ def sort_render(
 ):
     ### 初始化表示渲染结果的张量
     out_color = torch.zeros((width, height, 3), device="cuda", dtype=torch.float) # 每一像素点的颜色
-    # final_T = torch.zeros((width, height, 1), device="cuda", dtype=torch.float) # 每一像素点的透明度
-    # n_contrib = torch.zeros((width, height, 1), device="cuda", dtype=torch.int) # 对每一像素点产生影响的高斯个数
+    out_depth = torch.zeros((width, height, 1), device="cuda", dtype=torch.float) # 每一像素点的深度
+    final_T = torch.zeros((width, height, 1), device="cuda", dtype=torch.float) # 每一像素点的透明度
+    n_contrib = torch.zeros((width, height, 1), device="cuda", dtype=torch.int) # 对每一像素点产生影响的高斯个数
 
-    ### 遍历每一tile，完成排序和渲染
+    ### 定义命令行进度条
     progress_bar = tqdm(range(0, (tile_grid[0] * tile_grid[1]).item()), desc="Rendering progress")
+    ### 遍历每一tile，完成排序和渲染
     for t in range(0, (tile_grid[0] * tile_grid[1]).item()):
-        # print("Progress:"+str(t)+"/"+str((tile_grid[0] * tile_grid[1]).item()))
     # for t in range(0, 1):
         ## 计算当前tile的坐标范围，横x竖y
         # tile对应的序号
         tile_x = int(t % tile_grid[0])
         tile_y = int(t / tile_grid[0])
-        # 当前tile对应的像素范围
+        # 当前tile对应的像素范围，并对图像边界进行检查，tile对应的像素范围不能超过图像边界
         pix_min = torch.zeros(2, device="cuda", dtype=torch.int)
         pix_max = torch.zeros(2, device="cuda", dtype=torch.int)
         pix_min[0] = tile_x * 16
@@ -232,11 +236,8 @@ def sort_render(
         over_r = rect_pix_max[..., 0].clip(max=pix_max[0])
         over_b = rect_pix_max[..., 1].clip(max=pix_max[1])
         condition[:] = (over_r > over_l) & (over_b > over_t)
-        # 标记对当前tile产生影响的高斯
-        gaussian_touched = torch.zeros(P, device="cuda", dtype=torch.int)
-        gaussian_touched[:] = torch.where(condition[:], torch.tensor(1, device="cuda", dtype=torch.int), torch.tensor(0, device="cuda", dtype=torch.int))
-        # 获取对当前tile产生影响的高斯在原列表中的下标
-        gaussian_touched_indices = torch.where(gaussian_touched == 1)
+        # 标记对当前tile产生影响的高斯，获取对当前tile产生影响的高斯在原列表中的下标
+        gaussian_touched_indices = torch.where(condition == True)
         # 利用该下标对高斯深度进行过滤
         depths_filtered = depths[gaussian_touched_indices]
 
@@ -258,72 +259,52 @@ def sort_render(
         alpha = torch.zeros((tile_width, tile_height, tile_P, 1), device="cuda", dtype=torch.float) # 贡献度（不透明度）alpha
         T = torch.ones((tile_width, tile_height, tile_P, 1), device="cuda", dtype=torch.float) # 透明度
         color = torch.zeros((tile_width, tile_height, 3), device="cuda", dtype=torch.float) # 像素点最终颜色
+        depth = torch.zeros((tile_width, tile_height, 1), device="cuda", dtype=torch.float) # 像素点最终深度
         # 对形状不一致的变量进行广播
         con_o = conic_opacity_filtered.unsqueeze(0).unsqueeze(0).expand(tile_width, tile_height, tile_P, 4)
         rgb_c = rgb_filtered.unsqueeze(0).unsqueeze(0).expand(tile_width, tile_height, tile_P, 3)
-        # 对中间变量赋值
+        depths_c = depths_filtered.unsqueeze(0).unsqueeze(0).unsqueeze(-1).expand(tile_width, tile_height, tile_P, 1)
+        # 计算d
         xy[:, :, :, :] = points_xy_image_filtered.unsqueeze(0).unsqueeze(0)
         pixel_uv[:, :, :, 0] = (torch.arange(tile_width, device="cuda", dtype=torch.float).unsqueeze(1).expand(tile_width, tile_height) + pix_min[0]).unsqueeze(2)
         pixel_uv[:, :, :, 1] = (torch.arange(tile_height, device="cuda", dtype=torch.float).unsqueeze(0).expand(tile_width, tile_height) + pix_min[1]).unsqueeze(2)
         d = xy - pixel_uv
+        # 计算power
         power = (-0.5 * (con_o[..., 0] * d[..., 0] * d[..., 0] + con_o[..., 2] * d[..., 1] * d[..., 1]) - con_o[..., 1] * d[..., 0] * d[..., 1]).unsqueeze(-1)
+        # 计算alpha
         alpha[:, :, :, 0] = con_o[:, :, :, 3] * torch.exp(power[:, :, :, 0])
+        # 计算T
         one_minus_alpha = 1 - alpha
         T = torch.cumprod(one_minus_alpha, dim=2)
+        final_T[pix_min[0]:pix_max[0]+1, pix_min[1]:pix_max[1]+1] = T[:, :, (tile_P - 1), 0:1] # 更新当前tile的final_T，final_T=π(i)(1-alpha)
+        T = T / one_minus_alpha # 修正T，Ti对应π(i-1)(1-alpha)
+        T[:, :, 0, 0] = 1 # 修正T，T1=1
+        # 求和计算像素颜色
         color = torch.sum(alpha * T * rgb_c, dim=2)
+        # 求和计算像素深度
+        depth = torch.sum(alpha * T * depths_c, dim=2)
 
-        ###### 旧的写法
-        # # 累积透明度
-        # T = torch.ones((tile_width, tile_height, 1), device="cuda", dtype=torch.float)
-        # # 获得对当前tile产生影响的高斯个数
-        # n = depths_filtered.numel()
-        # # 循环处理每一个高斯
-        # for i in range(0, n):
-        # # for i in range(0, 1):
-        #     # 获取当前高斯的在原序列中的下标
-        #     idx = int(indices[i].item())
-        #     # 初始化中间变量
-        #     d = torch.zeros((tile_width, tile_height, 2), device="cuda", dtype=torch.float) # 像素点与2D高斯中心的向量
-        #     power = torch.zeros((tile_width, tile_height, 1), device="cuda", dtype=torch.float) # 指数部分
-        #     alpha = torch.zeros((tile_width, tile_height, 1), device="cuda", dtype=torch.float) # 贡献度（不透明度）alpha
-        #     xy = torch.zeros((tile_width, tile_height, 2), device="cuda", dtype=torch.float) # 当前2D高斯的均值坐标
-        #     con_o_x = conic_opacity_filtered[idx, 0].item()
-        #     con_o_y = conic_opacity_filtered[idx, 1].item()
-        #     con_o_z = conic_opacity_filtered[idx, 2].item()
-        #     con_o_w = conic_opacity_filtered[idx, 3].item()
-        #     # 计算
-        #     xy[:, :, 0] = points_xy_image_filtered[idx, 0]
-        #     xy[:, :, 1] = points_xy_image_filtered[idx, 1]
-        #     d = xy - pixel_uv # 计算d，像素点与2D高斯中心的向量
-        #     power = (-0.5 * (con_o_x * d[..., 0] * d[..., 0] + con_o_z * d[..., 1] * d[..., 1]) - con_o_y * d[..., 0] * d[..., 1]).unsqueeze(-1) # 计算power，指数部分
-        #     power.clip(max=0)
-        #     alpha = con_o_w * torch.exp(power) # 计算alpha
-        #     alpha.clip(max=0.99)
-        #     # 对alpha的异常值进行处理
-        #     # alpha = torch.where(power > 0.0, torch.tensor(0.99, device="cuda", dtype=torch.float), alpha) # power大于0，alpha为0
-        #     # alpha = torch.where(alpha < (1.0 / 255.0), torch.tensor(0, device="cuda", dtype=torch.float), alpha) # alpha小于1/255，alpha为0
-        #     # 计算透明度T
-        #     T = T * (1 - alpha)
-        #     # 计算颜色
-        #     color[..., 0] += rgb_filtered[idx, 0] * alpha[..., 0] * T[..., 0]
-        #     color[..., 1] += rgb_filtered[idx, 1] * alpha[..., 0] * T[..., 0]
-        #     color[..., 2] += rgb_filtered[idx, 2] * alpha[..., 0] * T[..., 0]
-        
-        # ## 给color加上背景颜色
-        # # color += T * background
-
-        ## 更新当前tile的color和T
+        ## 更新当前tile的color
         out_color[pix_min[0]:pix_max[0]+1, pix_min[1]:pix_max[1]+1] = color
-        # final_T[pix_min[0]:pix_max[0]+1, pix_min[1]:pix_max[1]+1] = T
+
+        ## 更新当前tile的depth
+        out_depth[pix_min[0]:pix_max[0]+1, pix_min[1]:pix_max[1]+1] = depth
+
+        ## 更新当前tile的n_contrib
+        n_contrib[pix_min[0]:pix_max[0]+1, pix_min[1]:pix_max[1]+1] = tile_P
 
         ## 更新进度条
-        with torch.no_grad(): # 以下的代码块将在不计算梯度的情况下执行，这样可以节省内存并加快计算速度
+        with torch.no_grad(): # 在不计算梯度的情况下执行，节省内存并加快计算速度
                 progress_bar.update(1)
     
-    ## 关闭进度条
+    ### 关闭进度条
     progress_bar.close()
-    # 返回计算结果
-    return out_color
+
+    ### 加上背景颜色
+    out_color += final_T * background
+
+    ### 返回计算结果
+    return out_color, out_depth, final_T, n_contrib
         
 
             

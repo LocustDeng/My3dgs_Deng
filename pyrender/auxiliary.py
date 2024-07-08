@@ -133,6 +133,7 @@ def computeColorFromSH(P, D, M, means3D, cam_pos, shs):
                     + SH_C3[6] * x * (xx - 3.0 * yy) * shs[:, 15, :]
                 )
         result[:] += 0.5
+        result.clip(min=0)
     return result
     
     

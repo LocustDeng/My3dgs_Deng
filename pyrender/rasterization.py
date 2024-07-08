@@ -116,6 +116,8 @@ class GaussianRasterizer():
             focal_x,
             tile_grid,
         )
+
+        ## 预处理结果测试
         # print(means3D)
         # print(viewmatrix)
         # print(radii.shape[0])
@@ -142,10 +144,12 @@ class GaussianRasterizer():
         ## 遍历每一tile，在遍历的过程中完成对tile所涉及的高斯排序，同时进行渲染，计算像素颜色
         # 定义表示渲染结果的张量
         out_color = torch.zeros((width, height, 3), device="cuda", dtype=torch.float) # 每一像素点的颜色
+        out_depth = torch.zeros((width, height, 1), device="cuda", dtype=torch.float) # 每一像素点的深度
         final_T = torch.zeros((width, height, 1), device="cuda", dtype=torch.float) # 每一像素点的透明度
         n_contrib = torch.zeros((width, height, 1), device="cuda", dtype=torch.int) # 对每一像素点产生影响的高斯个数
 
-        out_color = sort_render(
+        ## 以tile为单位批量完成tile内的像素点颜色计算，每处理一个tile就同时完成高斯排序和像素颜色计算两项任务
+        out_color, out_depth, final_T, n_contrib = sort_render(
             P,
             tile_grid,
             width,
@@ -161,23 +165,40 @@ class GaussianRasterizer():
             background
         )
 
-        # 显示渲染结果
+        ## 显示渲染结果
+        # 显示渲染得到的图片
         # 将张量从 GPU 移动到 CPU，并转换为 NumPy 数组
-        # print(out_color.shape)
-        image_np = out_color.detach().cpu().numpy()
-        image_np = image_np.transpose(1, 0, 2)
+        out_color = out_color.permute(1, 0, 2)
+        render_image = out_color.detach().cpu().numpy()
 
         # 确保 RGB 值在 [0, 1] 的范围内，并转换为 [0, 255] 的范围内的整数
-        image_np = (np.clip(image_np, 0, 1) * 255).astype(np.uint8)
+        render_image = (np.clip(render_image, 0, 1) * 255).astype(np.uint8)
 
         # 将 NumPy 数组转换为图像
-        image = Image.fromarray(image_np)
+        render_image = Image.fromarray(render_image)
 
         # 显示图像
-        image.show()
+        render_image.show()
 
-        # 如果你希望将图像保存到文件
-        # image.save("rendered_image.png")
+        # 将图像保存到文件
+        # render_image.save("render_image.png")
+
+        # # 显示渲染得到的深度图
+        # # 将张量从 GPU 复制到 CPU，并转换为 numpy 数组
+        # out_depth = out_depth.permute(1, 0, 2)
+        # depth_map = out_depth.detach().cpu().squeeze().numpy()
+
+        # # 归一化深度图到 [0, 255] 范围
+        # depth_map = (255 * (depth_map - depth_map.min()) / (depth_map.max() - depth_map.min())).astype('uint8')
+
+        # # 使用 PIL 库将深度图转换为图像
+        # depth_map = Image.fromarray(depth_map)
+
+        # # 显示深度图
+        # depth_map.show()
+
+        # # 将图像保存到文件
+        # depth_map.save("depth_map.png")
         
         
 
