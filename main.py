@@ -8,24 +8,26 @@ import os
 import torch
 import sys
 import json
+import torch.optim as optim
 from random import randint
 from scene.data_reader import *
 from scene.gaussian_model import *
 from pyrender.rasterization import *
 from argparse import ArgumentParser, Namespace
+import torchvision.transforms as transforms
 
 #### render函数，完成渲染过程的参数配置，初始化渲染器
-def render(viewpoint_cam, pc : GSModel, scene_info, config):
+def render(viewpoint_cam, pc : GSModel, scene_info, config, rasterizer):
     ### 计算光栅化过程中可能使用的参数
     ## 计算相机视野角度的切线值
     tanfovx = math.tan(viewpoint_cam.fovX * 0.5)
     tanfovy = math.tan(viewpoint_cam.fovY * 0.5)
     
-    ### 初始化高斯光栅化器
-    rasterizer = GaussianRasterizer()
+    # ### 初始化高斯光栅化器
+    # rasterizer = GaussianRasterizer()
     ### 进行前向传播 
     # print(viewpoint_cam.height)
-    rasterizer.forward(
+    out_color = rasterizer.forward(
         P = pc.get_P,
         D = 3, # int，球谐函数的度数
         M = 16, # int，基函数的个数
@@ -44,23 +46,21 @@ def render(viewpoint_cam, pc : GSModel, scene_info, config):
         tanfovx = tanfovx,
         tanfovy = tanfovy,
     )
+    return out_color
 
     
 #### train函数
 def train(config):
     print("Train begin.\n")
-    ### 初始化高斯
+    ### 初始化高斯/从ply文件中加载高斯数据
     gaussians = GSModel(config.sh_degree)
     ## 从colmap输出文件中读取场景相关数据
     scene_info = GSDataLoader(config.source_path, "images")
-    # print(scene_info.cameras[1].ViewProjMatrix)
-    # print(scene_info.points_cloud)
     ##【待实现】计算场景包围盒半径,后期进行高斯球致密化时需要使用
     ## 从点云数据中创建高斯
-    # gaussians.create_from_pcd(scene_info.points_cloud, 1.0) # 空间缩放因子是随便设的
-    gaussians.load_ply("D:\\Dataset\\data\\point_cloud.ply")
-    # print(gaussians._rotation.shape[0])
-    # print(gaussians._features_dc)
+    gaussians.create_from_pcd(scene_info.points_cloud, 1.0) # 空间缩放因子是随便设的
+    ## 从ply文件中加载高斯数据
+    # gaussians.load_ply("D:\\Dataset\\data\\point_cloud.ply")
     ##【待实现】配置高斯模型训练参数
     # gaussians.training_setup(config)
     
@@ -68,23 +68,48 @@ def train(config):
     ## 训练中可能用到的一些参数
     viewpoint_stack = None # 视点栈，存储相机列表
     first_iter = 0 # 初始迭代次数
+    ## 初始化高斯光栅化器
+    rasterizer = GaussianRasterizer()
+    # ## 定义adam优化器
+    # optimizer = optim.Adam(rasterizer.parameters(), lr=0.0001)
     ## 开始训练
     first_iter += 1
     # for iteration in range(first_iter, config.iterations + 1):
     for iteration in range(first_iter, 2):
         ##【待实现】根据当前迭代次数更新学习率
         # gaussians.update_learning_rate(iteration)
+
         ## 更新球谐系数阶数，每迭代1000次就使球协函数的阶数加1，直至最大
         gaussians.oneupSHdegree()
+
         ## 复制相机信息列表，并随机选取一个相机视角作为训练渲染视角
         if not viewpoint_stack:
             viewpoint_stack = scene_info.cameras
         # viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
         viewpoint_cam = viewpoint_stack.pop(0)
-        # print(viewpoint_cam.fovX)
-        # print(build_r(gaussians.get_rotation))
-        ## 渲染
-        render(viewpoint_cam, gaussians, scene_info, config)
+        
+        ## 前向传播，渲染，获取前向传播的返回值
+        out_image = render(viewpoint_cam, gaussians, scene_info, config, rasterizer)
+
+        ## 计算loss
+        # print(config.lambda_dssim)
+        # 获得ground truth
+        transform = transforms.ToTensor()
+        gt_image = viewpoint_cam.image
+        gt_image = transform(gt_image).cuda()
+        gt_image = gt_image.permute(2, 1, 0)
+        # 计算loss1
+        L1 = l1_loss(out_image, gt_image)
+        # 计算loss2，ssim
+        L2 = ssim(out_image, gt_image)
+        # 计算总loss
+        loss = (1.0 - config.lambda_dssim) * L1 + config.lambda_dssim * (1.0 - L2)
+        print(loss)
+
+        ## 反向传播
+        # loss.backward()
+
+        ## 高斯致密化
     
     
 #### 主函数
