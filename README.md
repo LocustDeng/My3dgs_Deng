@@ -9,12 +9,12 @@ Rewriting of 3dgs：3dgs的Python复现，不涉及Cuda代码
 5. config.json：训练参数配置文件，用于设置训练模型参数
 6. create_config_json.ipynb: 生成config.json文件，jupyter运行
 7. 测试结果：
-* render_image_from_ply1000：使用vanilla 3dgs训练1000轮时保存的点云数据（point_cloud.ply）进行渲染的渲染结果；
-* depth_map_from_ply1000：使用vanilla 3dgs训练1000轮时保存的点云数据（point_cloud.ply）进行渲染的深度图；
-* render_image_0：vanilla 3dgs数据集初始化的高斯球的渲染结果；
-* render_image_1000：vanilla 3dgs数据集训练1000轮的渲染结果；
-* depth_map_1000：vanilla 3dgs数据集训练1000轮的深度图；
-* training_log：训练1000轮的命令行运行截图；
+    * render_image_from_ply1000：使用vanilla 3dgs训练1000轮时保存的点云数据（point_cloud.ply）进行渲染的渲染结果；
+    * depth_map_from_ply1000：使用vanilla 3dgs训练1000轮时保存的点云数据（point_cloud.ply）进行渲染的深度图；
+    * render_image_0：vanilla 3dgs数据集初始化的高斯球的渲染结果；
+    * render_image_1000：vanilla 3dgs数据集训练1000轮的渲染结果；
+    * depth_map_1000：vanilla 3dgs数据集训练1000轮的深度图；
+    * training_log：训练1000轮的命令行运行截图；
 8. data：自定义，保存需要进行训练的数据和训练后的ply文件；
 
 # 项目环境
