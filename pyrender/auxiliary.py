@@ -5,6 +5,7 @@ import torch
 from math import exp
 import torch.nn.functional as F
 from torch.autograd import Variable
+from PIL import Image
 
 
 #### 计算高斯的3D协方差
@@ -187,6 +188,43 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
         return ssim_map.mean()
     else:
         return ssim_map.mean(1).mean(1).mean(1)
+    
+def show_image(out_color, out_depth, iteration):
+    ## 显示渲染结果
+    # 显示渲染得到的图片
+    # 将张量从 GPU 移动到 CPU，并转换为 NumPy 数组
+    out_color = out_color.permute(1, 0, 2)
+    render_image = out_color.detach().cpu().numpy()
+
+    # 确保 RGB 值在 [0, 1] 的范围内，并转换为 [0, 255] 的范围内的整数
+    render_image = (np.clip(render_image, 0, 1) * 255).astype(np.uint8)
+
+    # 将 NumPy 数组转换为图像
+    render_image = Image.fromarray(render_image)
+
+    # 显示图像
+    # render_image.show()
+
+    # 将图像保存到文件
+    render_image.save("render_image_" + str(iteration) + ".png")
+
+    # 显示渲染得到的深度图
+    # 将张量从 GPU 复制到 CPU，并转换为 numpy 数组
+    out_depth = out_depth.permute(1, 0, 2)
+    depth_map = out_depth.detach().cpu().squeeze().numpy()
+
+    # 归一化深度图到 [0, 255] 范围
+    depth_map = (255 * (depth_map - depth_map.min()) / (depth_map.max() - depth_map.min())).astype('uint8')
+
+    # 使用 PIL 库将深度图转换为图像
+    depth_map = Image.fromarray(depth_map)
+
+    # 显示深度图
+    # depth_map.show()
+
+    # 将图像保存到文件
+    depth_map.save("depth_map_"+ str(iteration) + ".png")
+
     
     
 

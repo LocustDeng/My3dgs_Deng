@@ -31,7 +31,7 @@ def preprocess(
 ):
     ### 定义参数
     radii = torch.zeros(P, device="cuda")
-    points_xyz_camera = torch.zeros((P, 3), device="cuda", dtype=torch.float)
+    points_xyz_camera = torch.zeros((P, 4), device="cuda", requires_grad=True, dtype=torch.float)
     points_xyz_proj = torch.zeros((P, 3), device="cuda", dtype=torch.float)
     points_xy_image = torch.zeros((P, 2), device="cuda", dtype=torch.float)
     depths = torch.zeros(P, device="cuda", dtype=torch.float)
@@ -48,7 +48,7 @@ def preprocess(
 
     ### 计算高斯在相机空间中的坐标
     points_xyz_camera = means3D @ viewmatrix.t()
-    #print(points_xyz_camera.shape[0])
+    points_xyz_camera.retain_grad
 
     ### 进行近平面裁剪
     ## 标记不可见的点
@@ -176,7 +176,8 @@ def preprocess(
         rect_min,
         rect_max,
         rect_pix_min,
-        rect_pix_max
+        rect_pix_max,
+        visibility
     )
 
 
@@ -202,8 +203,8 @@ def sort_render(
     final_T = torch.zeros((width, height, 1), device="cuda", dtype=torch.float) # 每一像素点的透明度
     n_contrib = torch.zeros((width, height, 1), device="cuda", dtype=torch.int) # 对每一像素点产生影响的高斯个数
 
-    ### 定义命令行进度条
-    progress_bar = tqdm(range(0, (tile_grid[0] * tile_grid[1]).item()), desc="Rendering progress")
+    ### 定义命令行进度条，显示每一轮的渲染进度
+    # progress_bar = tqdm(range(0, (tile_grid[0] * tile_grid[1]).item()), desc="Rendering progress")
     ### 遍历每一tile，完成排序和渲染
     for t in range(0, (tile_grid[0] * tile_grid[1]).item()):
     # for t in range(0, 1):
@@ -294,11 +295,11 @@ def sort_render(
         n_contrib[pix_min[0]:pix_max[0]+1, pix_min[1]:pix_max[1]+1] = tile_P
 
         ## 更新进度条
-        with torch.no_grad(): # 在不计算梯度的情况下执行，节省内存并加快计算速度
-                progress_bar.update(1)
+        # with torch.no_grad(): # 在不计算梯度的情况下执行，节省内存并加快计算速度
+        #         progress_bar.update(1)
     
     ### 关闭进度条
-    progress_bar.close()
+    # progress_bar.close()
 
     ### 加上背景颜色
     out_color += final_T * background

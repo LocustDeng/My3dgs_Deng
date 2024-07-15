@@ -33,7 +33,7 @@ def render_image(
     tanfovy,
 ):
     ## 重新构造参数，便于批量计算
-    # 扩展neans3D至4维
+    # 扩展means3D至4维
     temp = torch.ones((P, 1), device="cuda", dtype=torch.float)
     means3D_hom = torch.cat((means3D, temp), dim=1)
     # 数据类型统一
@@ -51,7 +51,7 @@ def render_image(
 
     ## 初始化需要计算的参数
     radii = torch.zeros(P, device="cuda")
-    points_xyz_camera = torch.zeros((P, 3), device="cuda", dtype=torch.float)
+    points_xyz_camera = torch.zeros((P, 3), device="cuda", requires_grad=True, dtype=torch.float)
     points_xyz_proj = torch.zeros((P, 3), device="cuda", dtype=torch.float)
     points_xy_image = torch.zeros((P, 2), device="cuda", dtype=torch.float)
     depths = torch.zeros(P, device="cuda", dtype=torch.float)
@@ -67,7 +67,7 @@ def render_image(
     rect_pix_max = torch.zeros((P, 2), device="cuda", dtype=torch.float)
     
     ## 对每个高斯点进行预处理
-    (
+    ( 
         radii,
         points_xyz_camera,
         points_xyz_proj,
@@ -82,7 +82,8 @@ def render_image(
         rect_min,
         rect_max,
         rect_pix_min,
-        rect_pix_max
+        rect_pix_max,
+        visibility
     ) = preprocess(
         P, 
         D, 
@@ -105,6 +106,9 @@ def render_image(
         focal_x,
         tile_grid,
     )
+
+    ## 保存points_xyz_camera的梯度
+    points_xyz_camera.retain_grad()
 
     ## 预处理结果测试
     # print(means3D)
@@ -169,8 +173,8 @@ def render_image(
     # # 显示图像
     # render_image.show()
 
-    # 将图像保存到文件
-    # render_image.save("render_image.png")
+    # # 将图像保存到文件
+    # render_image.save("render_image_0.png")
 
     # # 显示渲染得到的深度图
     # # 将张量从 GPU 复制到 CPU，并转换为 numpy 数组
@@ -190,18 +194,15 @@ def render_image(
     # depth_map.save("depth_map.png")
 
     ## 返回渲染结果
-    return out_color
+    return out_color, out_depth, points_xyz_camera, radii, visibility
 
 
 #### 高斯光栅化器
-##【待实现】考虑反向传播
-# class GaussianRasterizer(nn.Module):
 class GaussianRasterizer(nn.Module):
     ### 初始化函数
     def __init__(self):
         ## 调用父类初始化函数，进行梯度计算
-        # super().__init__() 
-        pass
+        super().__init__() 
     
     ### 前向传播
     def forward(
@@ -224,7 +225,7 @@ class GaussianRasterizer(nn.Module):
         tanfovx,
         tanfovy,
     ):
-        out_color = render_image(
+        out_color, out_depth, points_xyz_camera, radii, visibility = render_image(
             self,
             P, # int，高斯的数量
             D, # int，球谐函数的度数
@@ -244,7 +245,10 @@ class GaussianRasterizer(nn.Module):
             tanfovx,
             tanfovy,
         )
-        return out_color
+        points_xyz_camera.retain_grad()
+        ## 保存中间变量
+        self._points_xyz_camera =  points_xyz_camera
+        return out_color, out_depth, radii, visibility
         
         
 

@@ -125,6 +125,36 @@ class GSDataLoader:
         normals = np.vstack([vertices['nx'], vertices['ny'], vertices['nz']]).T # 法向量信息也使用 np.vstack 堆叠并转置
         return BasicPointCloud(points=positions, colors=colors, normals=normals)
     
+    #### 计算相机阵列的中心和平移向量以及包围这些相机中心的最小球体的半径
+    def getNerfppNorm(self, cam_info):
+        ### 计算所有相机中心的平均值和最长对角线距离（用于计算半径）
+        def get_center_and_diag(cam_centers):
+            cam_centers = np.hstack(cam_centers) # np.hstack()按水平方向（列顺序）堆叠数组构成一个新的数组，堆叠的数组需要具有相同的维度 -》np.vstack()
+            # 计算相机中心的平均值
+            # axis不设置值，对m*n个数求平均值，返回一个实数,axis = 0：压缩行，对各列求均值，返回1*n的矩阵,axis = 1: 压缩列，对各行求均值，返回m*1的矩阵
+            avg_cam_center = np.mean(cam_centers, axis=1, keepdims=True) 
+            center = avg_cam_center
+            # 计算每个相机中心到平均中心的距离
+            dist = np.linalg.norm(cam_centers - center, axis=0, keepdims=True)
+            # 找到最大距离，用于求半径
+            diagonal = np.max(dist)
+            # 返回所有相机中心的中心，和某相机中心和相机中心的中心的最大长度
+            return center.flatten(), diagonal
+        # 初始化相机中心列表
+        cam_centers = []
+        # 计算每个相机的相机中心
+        for cam in cam_info:
+            # 计算世界坐标系到相机坐标系的矩阵变换
+            W2C = getWorld2View2(cam.R, cam.T)
+            # 求W2C的逆矩阵C2W
+            C2W = np.linalg.inv(W2C)
+            # 获取相机的相机中心，即相机光心坐标（0,0,0）在世界坐标系中的坐标
+            cam_centers.append(C2W[:3, 3:4])
+        center, diagonal = get_center_and_diag(cam_centers)
+        radius = diagonal * 1.1
+        translate = -center
+        return {"translate": translate, "radius": radius}
+    
     #### 对colmap输出做处理变换的函数
     def processColmap(self, cam_extrinsic, cam_intrinsic, images_folder):
         ### 获取相机参数和图片信息
@@ -160,6 +190,10 @@ class GSDataLoader:
         ply_path = os.path.join(self.path, "sparse/0/points3D.ply")
         self.points_cloud = self.fetchPly(ply_path)
         '''没有计算相机中心和场景半径'''
+        ### 计算相机中心和场景半径
+        self.cameras_box_center = self.getNerfppNorm(self.cameras)["translate"]
+        self.cameras_box_radius = self.getNerfppNorm(self.cameras)["radius"]
+
             
     #### 从colmap中读数据的函数
     def readColmap(self, path, reading_dir):
@@ -172,6 +206,12 @@ class GSDataLoader:
 
         ### 获取相机信息，对colmap输出进行处理，变为想要的数据形式
         self.processColmap(cam_extrinsic, cam_intrinsic, os.path.join(path, reading_dir))
+
+    
+    #### 返回存储路径
+    def get_path(self):
+        return self.path
+        
 
 #### 测试
 # l_data = GSDataLoader(r"D:\3DGS\gaussian-splatting(note)\data", "images")
