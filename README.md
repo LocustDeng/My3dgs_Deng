@@ -8,7 +8,7 @@ Rewriting of 3dgs：3dgs的Python复现，不涉及Cuda代码
 4. main.py: 实现训练主函数，训练结果保存，命令行日志打印
 5. config.json：训练参数配置文件，用于设置训练模型参数
 6. create_config_json.ipynb: 生成config.json文件，jupyter运行
-7. 测试结果：
+7. 测试结果：  
     render_image_from_ply1000：使用vanilla 3dgs训练1000轮的点云数据（point_cloud.ply）渲染的结果  
     depth_map_from_ply1000：使用vanilla 3dgs训练1000轮的点云数据（point_cloud.ply）渲染的深度图  
     render_image_0：对vanilla 3dgs数据集初始化的高斯球进行渲染的渲染结果  
