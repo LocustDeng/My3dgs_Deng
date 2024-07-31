@@ -115,7 +115,7 @@ def train(config):
             ## 如果当前迭代次数在预设的保存迭代次数列表中，打印信息并保存当前scene，场景保存
             if (iteration in config.save_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
-                point_cloud_path = os.path.join(scene_info.get_path(), "point_cloud/iteration_{}".format(iteration))
+                point_cloud_path = os.path.join(scene_info.get_path(), "output/point_cloud/iteration_{}".format(iteration))
                 gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
             ## 高斯致密化
             # 致密化时的mask
